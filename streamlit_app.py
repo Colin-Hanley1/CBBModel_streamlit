@@ -438,9 +438,14 @@ def main():
                     st.success("Results saved to tournament_results.json")
                     
     elif page == "Rankings":
-        st.header("Team Rankings")
-        ranking_df = pd.read_csv('ranking2.csv')
-        st.write(ranking_df)
+        st.header("Rankings")
+        rankingShow = st.radio("Show", ["Momentum", "Performance Rankings"])
+        if rankingShow == 'Performance Rankings':
+            ranking_df = pd.read_csv('ranking2.csv')
+            st.write(ranking_df)
+        if rankingShow == 'Momentum':
+            ranking_df = pd.read_csv('Momentum.csv')
+            st.write(ranking_df)
         
         
                 

@@ -432,11 +432,7 @@ def main():
                     st.json(results)
                 
                 # Option to save results
-                if st.button("Save Results to JSON"):
-                    with open('tournament_results.json', 'w') as f:
-                        json.dump(results, f, indent=4)
-                    st.success("Results saved to tournament_results.json")
-                    
+                
     elif page == "Rankings":
         st.header("Rankings")
         rankingShow = st.radio("Show", ["Momentum", "Performance Rankings"])
@@ -450,9 +446,7 @@ def main():
         
                 
                 # Save rankings
-        if st.button("Save Rankings to CSV"):
-            ranking_df.to_csv('ranking_streamlit.csv', index=False)
-            st.success("Rankings saved to ranking_streamlit.csv")
+
 
 if __name__ == "__main__":
     main()

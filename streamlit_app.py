@@ -376,7 +376,6 @@ def main():
                     
         st.success("Bracket loaded successfully!")
         st.write("Teams by region:")
-        st.write(bracket)
 
         if bracket is not None:
             simulation_type = st.radio("Simulation Type", ["Random (Monte Carlo)", "Deterministic"])

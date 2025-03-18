@@ -304,7 +304,7 @@ def main():
     
     # Navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Team vs Team Prediction", "Rankings"])
+    page = st.sidebar.radio("Go to", ["Team vs Team Prediction", "Rankings", "Tournament Simulator"])
     
     if page == "Team vs Team Prediction":
         st.header("Team vs Team Prediction")
@@ -366,38 +366,18 @@ def main():
         st.header("Tournament Simulator")
         
         # Option to upload bracket or use a demo
-        bracket_option = st.radio("Bracket Source", ["Upload Bracket CSV", "Use Demo Bracket"])
         
-        if bracket_option == "Upload Bracket CSV":
-            uploaded_file = st.file_uploader("Upload bracket CSV", type=["csv"])
-            if uploaded_file is not None:
-                try:
-                    bracket_df = pd.read_csv(uploaded_file)
-                    bracket = {}
-                    for region in bracket_df["Region"].unique():
-                        region_teams = bracket_df[bracket_df["Region"] == region]["Team"].tolist()
-                        bracket[region] = region_teams
+        
+        bracket_df = pd.read_csv('bracket.csv')
+        bracket = {}
+        for region in bracket_df["Region"].unique():
+            region_teams = bracket_df[bracket_df["Region"] == region]["Team"].tolist()
+            bracket[region] = region_teams
                     
-                    st.success("Bracket loaded successfully!")
-                    st.write("Teams by region:")
-                    st.write(bracket)
-                except Exception as e:
-                    st.error(f"Error loading bracket: {e}")
-                    bracket = None
-            else:
-                bracket = None
-        else:
-            # Demo bracket with some sample teams
-            bracket = {
-                'South': ['UConn', 'Alabama', 'Illinois', 'Auburn', 'BYU', 'Colorado', 'Dayton', 'FAU'],
-                'East': ['Purdue', 'Tennessee', 'Creighton', 'Kansas', 'Texas', 'Kentucky', 'Vermont', 'Yale'],
-                'Midwest': ['Houston', 'Marquette', 'Wisconsin', 'Duke', 'Baylor', 'Colorado St', 'Texas A&M', 'James Madison'],
-                'West': ['North Carolina', 'Arizona', 'Iowa St', 'Saint Mary\'s', 'Gonzaga', 'Clemson', 'Grand Canyon', 'Long Beach St']
-            }
-            st.info("Using demo bracket")
-            st.write("Teams by region:")
-            st.write(bracket)
-        
+        st.success("Bracket loaded successfully!")
+        st.write("Teams by region:")
+        st.write(bracket)
+
         if bracket is not None:
             simulation_type = st.radio("Simulation Type", ["Random (Monte Carlo)", "Deterministic"])
             

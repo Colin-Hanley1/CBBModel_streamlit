@@ -304,7 +304,7 @@ def main():
     
     # Navigation
     st.sidebar.title("Navigation")
-    page = st.sidebar.radio("Go to", ["Team vs Team Prediction", "Tournament Simulator", "Rankings"])
+    page = st.sidebar.radio("Go to", ["Team vs Team Prediction", "Rankings"])
     
     if page == "Team vs Team Prediction":
         st.header("Team vs Team Prediction")
@@ -314,9 +314,9 @@ def main():
         
         col1, col2 = st.columns(2)
         with col1:
-            team1 = st.selectbox("Home Team", team_list)
+            team1 = st.selectbox("Team 1", team_list)
         with col2:
-            team2 = st.selectbox("Away Team", team_list, index=1)
+            team2 = st.selectbox("Team 2", team_list, index=1)
         
         location = st.radio("Game Location", ["Home/Away", "Neutral Court"])
         
@@ -332,25 +332,13 @@ def main():
                     st.subheader("Prediction Results")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric("Home Advantage", f"{home_score:.2f}")
+                        st.metric("Home Advantage", f"{home_score:.2f}",
+                                  delta=team1 if home_score > 0 else team2)
                     with col2:
-                        st.metric("Away Disadvantage", f"{away_score:.2f}")
-                    with col3:
-                        st.metric("Point Difference", f"{net_score:.2f}", 
-                                  delta=team1 if net_score > 0 else team2)
+                        st.metric("Away Advantage", f"{-away_score:.2f}",
+                                  delta=team1 if -away_score > 0 else team2)
+
                     
-                    # Display win probability
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric(f"{team1} Win Probability", f"{win_probability:.1%}")
-                    with col2:
-                        st.metric(f"{team2} Win Probability", f"{1-win_probability:.1%}")
-                    
-                    # Show the likely winner
-                    if win_probability > 0.5:
-                        st.success(f"Predicted Winner: {team1} with {win_probability:.1%} probability")
-                    else:
-                        st.success(f"Predicted Winner: {team2} with {(1-win_probability):.1%} probability")
             else:
                 # Neutral court prediction
                 net_score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
@@ -471,64 +459,15 @@ def main():
                     
     elif page == "Rankings":
         st.header("Team Rankings")
+        ranking_df = pd.read_csv('ranking2.csv')
+        st.write(ranking_df)
         
-        if st.button("Generate Rankings"):
-            with st.spinner("Calculating team rankings... This may take a while"):
-                mod = pd.read_csv("Overperformance.csv")
-                matchup_cache = {}
-                rankings = []
-
-                for index1, row1 in df.iterrows():
-                    t1 = row1['Team']
-                    sums = 0
-
-                    for index2, row2 in df.iterrows():
-                        t2 = row2['Team']
-                        if t1 != t2:
-                            key_home = (t1, t2)
-                            key_away = (t2, t1)
-
-                            t1_over = mod.loc[mod['Team Name'] == t1, 'Performance'].values
-                            t2_over = mod.loc[mod['Team Name'] == t2, 'Performance'].values
-                            t1_games = mod.loc[mod['Team Name'] == t1, 'Total Games'].values
-                            t2_games = mod.loc[mod['Team Name'] == t2, 'Total Games'].values
-                            
-                            t1_mod = t1_over/t1_games if len(t1_over) > 0 and len(t1_games) > 0 else np.array([1])
-                            t2_mod = t2_over/t2_games if len(t2_over) > 0 and len(t2_games) > 0 else np.array([1])
-                            
-                            t1_mod = t1_mod[0]
-                            t2_mod = t2_mod[0]
-                            
-                            avg_modifier = (t1_mod + t2_mod) / 2
-                            avg_modifier = avg_modifier*2
-                            
-                            if key_home not in matchup_cache:
-                                points_home = float(matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names)) + avg_modifier
-                                matchup_cache[key_home] = points_home
-                            else:
-                                points_home = matchup_cache[key_home]
-
-                            if key_away not in matchup_cache:
-                                points_away = float(matchup(t2, t1, model, scaler, df, teamsheet, explainer, feature_names)) - avg_modifier
-                                matchup_cache[key_away] = points_away
-                            else:
-                                points_away = matchup_cache[key_away]
-
-                            sums += points_home
-                            sums -= points_away
-
-                    rankings.append([t1, sums])
-
-                rankings.sort(key=lambda x: x[1], reverse=True)
-                
-                # Display rankings
-                ranking_df = pd.DataFrame(rankings, columns=["Team", "Ranking Score"])
-                st.dataframe(ranking_df, use_container_width=True)
+        
                 
                 # Save rankings
-                if st.button("Save Rankings to CSV"):
-                    ranking_df.to_csv('ranking_streamlit.csv', index=False)
-                    st.success("Rankings saved to ranking_streamlit.csv")
+        if st.button("Save Rankings to CSV"):
+            ranking_df.to_csv('ranking_streamlit.csv', index=False)
+            st.success("Rankings saved to ranking_streamlit.csv")
 
 if __name__ == "__main__":
     main()

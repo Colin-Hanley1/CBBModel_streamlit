@@ -1,69 +1,16 @@
+import streamlit as st
 import pandas as pd
-import warnings
-import time
 import numpy as np
-import csv
-import random
-import requests
-from torchviz import make_dot
-import shap
-import json
-from bs4 import BeautifulSoup
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset
-from sklearn.model_selection import train_test_split
+import shap
 from sklearn.preprocessing import StandardScaler
 import matplotlib.pyplot as plt
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-from csv import writer
-from IPython.display import display
+import random
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+import json
 
-warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.filterwarnings("ignore", category=UserWarning, message="X does not have valid feature names")
-
-# Load and preprocess the data
-def load_and_preprocess_data():
-    features = pd.read_csv('fixedtrain2.csv')
-    dataset = features.drop(['t1', 't2', 'year', 'month', 'day'], axis=1)
-    y = np.array(features['pointdiff'])
-    features = features.drop(['t1', 't2', 'year', 'month', 'day', 'result', 'pointdiff'], axis=1)
-    X = features
-    return X, y
-
-# Split and standardize data
-def split_and_standardize_data(X, y):
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    scaler = StandardScaler()
-    X_train = scaler.fit_transform(X_train)
-    X_test = scaler.transform(X_test)
-    return X_train, X_test, y_train, y_test, scaler
-
-# Convert data to PyTorch tensors
-def convert_to_tensors(X_train, X_test, y_train, y_test):
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
-    return X_train_tensor, X_test_tensor, y_train_tensor, y_test_tensor
-
-# Create PyTorch Dataset
-class CBBDataset(Dataset):
-    def __init__(self, features, labels):
-        self.features = features
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.features)
-
-    def __getitem__(self, idx):
-        return self.features[idx], self.labels[idx]
-
-# Define Feedforward Neural Network (FNN)
+# Define the Feedforward Neural Network model
 class CBBNet(nn.Module):
     def __init__(self, input_dim):
         super(CBBNet, self).__init__()
@@ -78,162 +25,58 @@ class CBBNet(nn.Module):
         x = self.fc3(x)
         return x
 
-# Evaluate model on test data
-def evaluate_model(model, test_loader, criterion):
-    model.eval()
-    total_loss = 0
-    with torch.no_grad():
-        for features, labels in test_loader:
-            predictions = model(features)
-            loss = criterion(predictions, labels)
-            total_loss += loss.item()
-    return total_loss / len(test_loader)
-
-# Training loop with early stopping
-def train_model(model, train_loader, test_loader, criterion, optimizer, scheduler, num_epochs=50, patience=10):
-    train_losses = []
-    test_losses = []
-    best_test_loss = float('inf')
-    trigger_times = 0
-
-    for epoch in range(num_epochs):
-        model.train()
-        epoch_loss = 0
-        for features, labels in train_loader:
-            optimizer.zero_grad()
-            predictions = model(features)
-            loss = criterion(predictions, labels)
-            loss.backward()
-            optimizer.step()
-            epoch_loss += loss.item()
-
-        train_loss = epoch_loss / len(train_loader)
-        test_loss = evaluate_model(model, test_loader, criterion)
-        scheduler.step(test_loss)
-
-        train_losses.append(train_loss)
-        test_losses.append(test_loss)
-
-        if test_loss < best_test_loss:
-            best_test_loss = test_loss
-            trigger_times = 0
-        else:
-            trigger_times += 1
-            if trigger_times >= patience:
-                print(f"Early stopping at epoch {epoch + 1}")
-                break
-
-    return train_losses, test_losses
-
-# Evaluate model performance
-def evaluate_performance(model, test_loader):
-    y_pred = []
-    y_true = []
-
-    model.eval()
-    with torch.no_grad():
-        for features, labels in test_loader:
-            predictions = model(features)
-            y_pred.extend(predictions.numpy())
-            y_true.extend(labels.numpy())
-
-    y_pred = np.array(y_pred)
-    y_true = np.array(y_true)
-
-    mae = mean_absolute_error(y_true, y_pred)
-    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-    r2 = r2_score(y_true, y_pred)
-
-    print(f"Mean Absolute Error (MAE): {mae:.4f}")
-    print(f"Root Mean Squared Error (RMSE): {rmse:.4f}")
-    print(f"R² Score: {r2:.4f}")
-
-    baseline_pred = np.full_like(y_true, np.mean(y_true))
-    baseline_rmse = np.sqrt(mean_squared_error(y_true, baseline_pred))
-    print(f"Baseline RMSE: {baseline_rmse:.4f}")
-    print(f"Baseline MAE: {mean_absolute_error(y_true, baseline_pred)}")
-
-def get_html_document(url):
-    user_agents = [
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/117.0",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/115.0.0.0"
-    ]
-
-    session = requests.Session()
-    headers = {
-        "User-Agent": random.choice(user_agents)
-    }
-    session.headers.update(headers)
+# Load the trained model, scaler, and datasets
+@st.cache_resource
+def load_model_and_data():
+    # Load model
+    input_dim = 18  # Set to match your feature count
+    model = CBBNet(input_dim)
+    try:
+        model.load_state_dict(torch.load('cbb_fnn_model.pth', map_location=torch.device('cpu')))
+        model.eval()
+    except:
+        st.error("Failed to load model. Please make sure 'cbb_fnn_model.pth' is in the app directory.")
+        return None, None, None, None, None
     
-    retries = 3
-    delay = 2
+    # Load data
+    try:
+        df = pd.read_csv('data2.csv')
+        teamsheet = pd.read_csv('2024ts.csv')
+        
+        # Load and fit scaler
+        features = pd.read_csv('fixedtrain2.csv')
+        features = features.drop(['t1', 't2', 'year', 'month', 'day', 'result', 'pointdiff'], axis=1)
+        scaler = StandardScaler()
+        scaler.fit(features)
+        
+        # Create background data for SHAP
+        background_data = torch.tensor(scaler.transform(features.iloc[:100]), dtype=torch.float32)
+        explainer = shap.DeepExplainer(model, background_data)
+        
+        # Feature names
+        feature_names = features.columns.tolist()
+        
+        return model, scaler, df, teamsheet, explainer, feature_names
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None, None, None, None, None
 
-    for attempt in range(retries):
-        try:
-            response = session.get(url, timeout=10)
-            response.raise_for_status()
-            return response.text
-        except requests.exceptions.HTTPError as e:
-            if response.status_code == 403:
-                print(f"403 Error encountered. Attempt {attempt + 1} of {retries}. Retrying...")
-                headers["User-Agent"] = random.choice(user_agents)
-                session.headers.update(headers)
-                time.sleep(delay)
-            else:
-                raise
-        except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}. Attempt {attempt + 1} of {retries}. Retrying...")
-            time.sleep(delay)
+# Function to train probability model
+@st.cache_resource
+def train_probability_model():
+    try:
+        df = pd.read_csv('ModelOutput.csv')
+        X = df[['Points']].values
+        y = df['Win?'].values
+        
+        model = LogisticRegression()
+        model.fit(X, y)
+        return model
+    except Exception as e:
+        st.error(f"Error training probability model: {e}")
+        return None
 
-    raise Exception("Failed to fetch the HTML document after multiple attempts.")
-
-def score_scraper(url, model, scaler, df, teamsheet, explainer, feature_names):
-    response = requests.get(url)
-    
-    if response.status_code != 200:
-        print(f"Failed to retrieve the page. Status code: {response.status_code}")
-        return []
-    
-    soup = BeautifulSoup(response.content, 'html.parser')
-    matchups = soup.find_all('td', class_='text-left nowrap')
-    results = []
-    
-    for game in matchups:  # Renamed 'matchup' to 'game' to avoid confusion with the function name
-        a_tag = game.find('a')
-        if a_tag:
-            matchup_text = a_tag.text.strip()
-            
-            if " at " in matchup_text:
-                team1, rest = matchup_text.split(" at ")
-                connector = "at"
-                team2 = rest.strip()
-            elif " vs. " in matchup_text:
-                team1, rest = matchup_text.split(" vs. ")
-                connector = "vs"
-                team2 = rest.strip()
-            else:
-                continue
-            
-            ateam = " ".join(team1.split()[1:]).strip()
-            hteam = " ".join(team2.split()[1:]).strip()
-            
-            if connector == "at":
-                points = matchup(hteam, ateam, model, scaler, df, teamsheet, explainer, feature_names)
-            elif connector == "vs":
-                points = ncourtmatchup(hteam, ateam, model, scaler, df, teamsheet, explainer, feature_names)
-            else:
-                continue
-            
-            result = [hteam, ateam, points]
-            with open('winprob.csv', 'a') as f_object:
-                writer_object = writer(f_object)
-                writer_object.writerow(result)
-            results.append(result)
-    
-    return results
-
+# Matchup prediction function
 def matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names):
     try:
         t1_stats = df.loc[df['Team'] == t1].squeeze()
@@ -261,107 +104,27 @@ def matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names):
             (float(t1_stats['WinP'])) - (float(t2_stats['WinP'])),
             class1 - class2
         ]
+        
         stat_diffs_scaled = scaler.transform([stat_differences])
         tensor = torch.tensor(stat_diffs_scaled, dtype=torch.float32)
 
-        model.eval()
         with torch.no_grad():
             prediction = model(tensor)
-        predicted_value = prediction.item()
-
-    # SHAP visualization
         
-        shap_values = explainer.shap_values(tensor)
-        sum = 0
-        
-        # Proper handling for single-output regression model
-        for i in range(len(feature_names)):
-            shap_values_array = np.array(shap_values[0])  # Shape: [1, num_features]
-            shap_values_instance = shap_values_array[i]    # Shape: [num_features]
-            #print(str(feature_names[i])+str(shap_values_instance))
-            sum = sum + shap_values_instance
-        
-        #print(sum)
-        
-        return predicted_value
-
+        return prediction.item()
 
     except KeyError as e:
-        print(f"Error: Team not found - {e}")
+        st.error(f"Error: Team not found - {e}")
         return None
 
-def ranking(df, model, scaler, teamsheet, explainer, feature_names):
-    mod = pd.read_csv("Overperformance.csv")
-    matchup_cache = {}
-    rankings = []
-
-    for index1, row1 in df.iterrows():
-        t1 = row1['Team']
-        sums = 0
-
-        for index2, row2 in df.iterrows():
-            t2 = row2['Team']
-            if t1 != t2:
-                key_home = (t1, t2)
-                key_away = (t2, t1)
-
-                t1_over = mod.loc[mod['Team Name'] == t1, 'Performance'].values
-                t2_over = mod.loc[mod['Team Name'] == t2, 'Performance'].values
-                t1_games = mod.loc[mod['Team Name'] == t1, 'Total Games'].values
-                t2_games = mod.loc[mod['Team Name'] == t2, 'Total Games'].values
-                
-                t1_mod = t1_over/t1_games if len(t1_over) > 0 and len(t1_games) > 0 else np.array([1])
-                t2_mod = t2_over/t2_games if len(t2_over) > 0 and len(t2_games) > 0 else np.array([1])
-                
-                t1_mod = t1_mod[0]
-                t2_mod = t2_mod[0]
-                
-                avg_modifier = (t1_mod + t2_mod) / 2
-                avg_modifier = avg_modifier*1.5
-                if key_home not in matchup_cache:
-                    points_home = float(matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names)) + avg_modifier
-                    matchup_cache[key_home] = points_home
-                else:
-                    points_home = matchup_cache[key_home]
-
-                if key_away not in matchup_cache:
-                    points_away = float(matchup(t2, t1, model, scaler, df, teamsheet, explainer, feature_names)) - avg_modifier
-                    matchup_cache[key_away] = points_away
-                else:
-                    points_away = matchup_cache[key_away]
-
-                sums += points_home
-                sums -= points_away
-
-        rankings.append([t1, sums])
-
-    rankings.sort(key=lambda x: x[1], reverse=True)
-
-    with open('ranking2.csv', 'w', newline='') as f_object:
-        writer = csv.writer(f_object)
-        writer.writerow(["Team", "Ranking Score"])
-        writer.writerows(rankings)
-
-    print("Ranking has been written to 'ranking2.csv' successfully.")
-
-def ncourtmatchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names):
+def neutral_court_matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names):
     home = matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names)
     away = matchup(t2, t1, model, scaler, df, teamsheet, explainer, feature_names)
     return ((home - away) / 2)
 
-def probabilitytrain():
-    df = pd.read_csv('ModelOutput.csv')
-    X = df[['Points']].values
-    y = df['Win?'].values
-
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    model = LogisticRegression()
-    model.fit(X_train, y_train)
-    return model
-
-def predict_probability(points, model):
+def predict_probability(points, prob_model):
     points = np.array([[points]])
-    prob = model.predict_proba(points)[0]
+    prob = prob_model.predict_proba(points)[0]
     return float(prob[1])
 
 def load_bracket(csv_file):
@@ -372,7 +135,7 @@ def load_bracket(csv_file):
         bracket[region] = region_teams
     return bracket
 
-def parsebracket(bracket, model, probmodel, scaler, df, teamsheet, explainer, feature_names):
+def simulate_bracket(bracket, model, prob_model, scaler, df, teamsheet, explainer, feature_names, use_random=True):
     # Get all regions
     regions = {
         'South': bracket.get('South', []),
@@ -387,13 +150,9 @@ def parsebracket(bracket, model, probmodel, scaler, df, teamsheet, explainer, fe
     E8 = []   # Elite 8
     F4 = []   # Final 4
     NC = []   # National Championship
-    round_data = {
-        'R32': R32,
-        'S16': S16,
-        'E8': E8,
-        'F4': F4,
-        'NC': NC
-    }
+    
+    # Track all games and results
+    all_games = []
     
     # Process each region separately for the first rounds
     for region_name, teams in regions.items():
@@ -406,14 +165,31 @@ def parsebracket(bracket, model, probmodel, scaler, df, teamsheet, explainer, fe
             next_round = []
             for i in range(0, len(temp), 2):
                 if i + 1 < len(temp):  # Make sure we have a pair
-                    print(f"{temp[i]} v {temp[i+1]}")
-                    score = ncourtmatchup(temp[i], temp[i+1], model, scaler, df, teamsheet, explainer, feature_names)
-                    probability = predict_probability(score, probmodel)
-                    game = random.uniform(0, 1)
+                    team1 = temp[i]
+                    team2 = temp[i+1]
                     
-                    winner = temp[i] if game <= probability else temp[i+1]
+                    score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+                    probability = predict_probability(score, prob_model)
+                    
+                    if use_random:
+                        game = random.uniform(0, 1)
+                        winner = team1 if game <= probability else team2
+                    else:
+                        winner = team1 if probability >= 0.5 else team2
+                    
                     next_round.append(winner)
-                    print(f"Winner: {winner}")
+                    
+                    # Record game details
+                    game_info = {
+                        "region": region_name,
+                        "round": round_number,
+                        "team1": team1,
+                        "team2": team2,
+                        "predicted_point_diff": score,
+                        "win_probability": probability,
+                        "winner": winner
+                    }
+                    all_games.append(game_info)
                     
                     # Track teams at appropriate rounds based on round number
                     if round_number == 1:
@@ -433,90 +209,244 @@ def parsebracket(bracket, model, probmodel, scaler, df, teamsheet, explainer, fe
     # Process Final Four
     if len(F4) >= 4:
         # Semifinal 1
-        print(f"{F4[0]} v {F4[1]}")
-        score = ncourtmatchup(F4[0], F4[1], model, scaler, df, teamsheet, explainer, feature_names)
-        probability = predict_probability(score, probmodel)
-        game = random.uniform(0, 1)
-        finalist1 = F4[0] if game <= probability else F4[1]
+        team1, team2 = F4[0], F4[1]
+        score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+        probability = predict_probability(score, prob_model)
+        
+        if use_random:
+            game = random.uniform(0, 1)
+            finalist1 = team1 if game <= probability else team2
+        else:
+            finalist1 = team1 if probability >= 0.5 else team2
+        
+        game_info = {
+            "region": "Final Four",
+            "round": 4,
+            "team1": team1,
+            "team2": team2,
+            "predicted_point_diff": score,
+            "win_probability": probability,
+            "winner": finalist1
+        }
+        all_games.append(game_info)
         
         # Semifinal 2
-        print(f"{F4[2]} v {F4[3]}")
-        score = ncourtmatchup(F4[2], F4[3], model, scaler, df, teamsheet, explainer, feature_names)
-        probability = predict_probability(score, probmodel)
-        game = random.uniform(0, 1)
-        finalist2 = F4[2] if game <= probability else F4[3]
+        team1, team2 = F4[2], F4[3]
+        score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+        probability = predict_probability(score, prob_model)
+        
+        if use_random:
+            game = random.uniform(0, 1)
+            finalist2 = team1 if game <= probability else team2
+        else:
+            finalist2 = team1 if probability >= 0.5 else team2
+            
+        game_info = {
+            "region": "Final Four",
+            "round": 4,
+            "team1": team1,
+            "team2": team2,
+            "predicted_point_diff": score,
+            "win_probability": probability,
+            "winner": finalist2
+        }
+        all_games.append(game_info)
         
         # Championship game
-        print(f"Championship: {finalist1} v {finalist2}")
-        score = ncourtmatchup(finalist1, finalist2, model, scaler, df, teamsheet, explainer, feature_names)
-        probability = predict_probability(score, probmodel)
-        game = random.uniform(0, 1)
-        champion = finalist1 if game <= probability else finalist2
-        print(champion)
+        team1, team2 = finalist1, finalist2
+        score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+        probability = predict_probability(score, prob_model)
+        
+        if use_random:
+            game = random.uniform(0, 1)
+            champion = team1 if game <= probability else team2
+        else:
+            champion = team1 if probability >= 0.5 else team2
+            
+        game_info = {
+            "region": "Championship",
+            "round": 5,
+            "team1": team1,
+            "team2": team2,
+            "predicted_point_diff": score,
+            "win_probability": probability,
+            "winner": champion
+        }
+        all_games.append(game_info)
+        
         NC.append(champion)
 
-    append_to_json_file('brackets.json', round_data)
-    return R32, S16, E8, F4, NC
-def append_to_json_file(file_name, new_data):
-    try:
-        try:
-            with open(file_name, 'r') as f:
-                existing_data = json.load(f)
-                if not isinstance(existing_data, list):
-                    existing_data = []
-        except FileNotFoundError:
-            existing_data = []
+    round_data = {
+        'R32': R32,
+        'S16': S16,
+        'E8': E8,
+        'F4': F4,
+        'NC': NC,
+        'all_games': all_games
+    }
+    
+    return round_data
 
-        existing_data.append(new_data)
-
-        with open(file_name, 'w') as f:
-            json.dump(existing_data, f, indent=4)
-
-    except json.JSONDecodeError:
-        print(f"Error decoding JSON from {file_name}. Starting fresh.")
-        with open(file_name, 'w') as f:
-            json.dump([new_data], f, indent=4)
-
+# Streamlit app
 def main():
-    X, y = load_and_preprocess_data()
-    X_train, X_test, y_train, y_test, scaler = split_and_standardize_data(X, y)
-    X_train_tensor, X_test_tensor, y_train_tensor, y_test_tensor = convert_to_tensors(X_train, X_test, y_train, y_test)
+    st.set_page_config(page_title="College Basketball Prediction Model", layout="wide")
+    
+    st.title("College Basketball Prediction Model")
+    st.write("This app uses a neural network model to predict college basketball games and tournament outcomes.")
+    
+    # Load model and data
+    model, scaler, df, teamsheet, explainer, feature_names = load_model_and_data()
+    prob_model = train_probability_model()
+    
+    if model is None or prob_model is None:
+        st.error("Failed to load required models or data. Please check that all files are available.")
+        return
+    
+    # Navigation
+    st.sidebar.title("Navigation")
+    page = st.sidebar.radio("Go to", ["Team vs Team Prediction", "Rankings", "Tournament Simulator"])
+    
+    if page == "Team vs Team Prediction":
+        st.header("Team vs Team Prediction")
+        
+        # Get list of teams
+        team_list = sorted(df['Team'].unique())
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            team1 = st.selectbox("Team 1", team_list)
+        with col2:
+            team2 = st.selectbox("Team 2", team_list, index=1)
+        
+        location = st.radio("Game Location", ["Home/Away", "Neutral Court"])
+        
+        if st.button("Predict Outcome"):
+            if location == "Home/Away":
+                home_score = matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+                away_score = matchup(team2, team1, model, scaler, df, teamsheet, explainer, feature_names)
+                
+                if home_score is not None and away_score is not None:
+                    net_score = (home_score + -away_score)/2
+                    win_probability = predict_probability(net_score, prob_model)
+                    
+                    st.subheader("Prediction Results")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Home Advantage", f"{home_score:.2f}",
+                                  delta=team1 if home_score > 0 else team2)
+                    with col2:
+                        st.metric("Away Advantage", f"{-away_score:.2f}",
+                                  delta=team1 if -away_score > 0 else team2)
 
-    train_dataset = CBBDataset(X_train_tensor, y_train_tensor)
-    test_dataset = CBBDataset(X_test_tensor, y_test_tensor)
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+                    
+            else:
+                # Neutral court prediction
+                net_score = neutral_court_matchup(team1, team2, model, scaler, df, teamsheet, explainer, feature_names)
+                if net_score is not None:
+                    win_probability = predict_probability(net_score, prob_model)
+                    
+                    st.subheader("Prediction Results (Neutral Court)")
+                    st.metric("Predicted Point Difference", f"{net_score:.2f}", 
+                              delta=team1 if net_score > 0 else team2)
+                    
+                    # Display win probability
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric(f"{team1} Win Probability", f"{win_probability:.1%}")
+                    with col2:
+                        st.metric(f"{team2} Win Probability", f"{1-win_probability:.1%}")
+                    
+                    # Show the likely winner
+                    if win_probability > 0.5:
+                        st.success(f"Predicted Winner: {team1} with {win_probability:.1%} probability")
+                    else:
+                        st.success(f"Predicted Winner: {team2} with {(1-win_probability):.1%} probability")
+    
+    elif page == "Tournament Simulator":
+        st.header("Tournament Simulator")
+        
+        # Option to upload bracket or use a demo
+        
+        
+        bracket_df = pd.read_csv('bracket.csv')
+        bracket = {}
+        for region in bracket_df["Region"].unique():
+            region_teams = bracket_df[bracket_df["Region"] == region]["Team"].tolist()
+            bracket[region] = region_teams
+                    
+        st.success("Bracket loaded successfully!")
+        st.write("Teams by region:")
+        
 
-    input_dim = X_train.shape[1]
-    model = CBBNet(input_dim)
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=0.01)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=5, verbose=True)
-    #train_losses, test_losses = train_model(model, train_loader, test_loader, criterion, optimizer, scheduler)
-    #torch.save(model.state_dict(), 'cbb_fnn_model.pth')
+        if bracket is not None:
+            simulation_type = st.radio("Simulation Type", ["Random (Monte Carlo)", "Deterministic"])
+            
+            if st.button("Run Tournament Simulation"):
+                use_random = (simulation_type == "Random (Monte Carlo)")
+                
+                with st.spinner("Simulating tournament..."):
+                    results = simulate_bracket(bracket, model, prob_model, scaler, df, teamsheet, explainer, feature_names, use_random)
+                
+                # Display results
+                st.subheader("Tournament Results")
+                
+                # Create tabs for different rounds
+                tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Final Results", "All Games", "Elite Eight", "Sweet 16", "Round of 32", "Raw Data"])
+                
+                with tab1:
+                    st.header("Champion")
+                    if results['NC']:
+                        st.subheader(f"🏆 {results['NC'][0]} 🏆")
+                    
+                    st.header("Final Four")
+                    col1, col2, col3, col4 = st.columns(4)
+                    for i, team in enumerate(results['F4']):
+                        with [col1, col2, col3, col4][i]:
+                            st.write(team)
+                
+                with tab2:
+                    # Filter and display all games
+                    games_df = pd.DataFrame(results['all_games'])
+                    st.dataframe(
+                        games_df.sort_values(by=['round', 'region'])
+                        .assign(predicted_point_diff=lambda x: x['predicted_point_diff'].round(2))
+                        .assign(win_probability=lambda x: (x['win_probability'] * 100).round(1).astype(str) + '%')
+                    )
+                
+                with tab3:
+                    st.header("Elite Eight")
+                    for team in results['E8']:
+                        st.write(team)
+                
+                with tab4:
+                    st.header("Sweet 16")
+                    for team in results['S16']:
+                        st.write(team)
+                
+                with tab5:
+                    st.header("Round of 32")
+                    for team in results['R32']:
+                        st.write(team)
+                
+                with tab6:
+                    st.json(results)
+                
+                # Option to save results
+                
+    elif page == "Rankings":
+        st.header("Rankings")
+        rankingShow = st.radio("Show", ["Momentum", "Performance Rankings"])
+        if rankingShow == 'Performance Rankings':
+            ranking_df = pd.read_csv('ranking2.csv')
+            st.write(ranking_df)
+        if rankingShow == 'Momentum':
+            ranking_df = pd.read_csv('Momentum.csv')
+            st.write(ranking_df)
+        
+        
+                
+                # Save rankings
 
-    model.load_state_dict(torch.load('cbb_fnn_model.pth'))
-    feature_names = X.columns.tolist()
-    print(feature_names)
-    background_data = X_train_tensor[:100]
-    explainer = shap.DeepExplainer(model, background_data)
-    probmodel = probabilitytrain()
-    df = pd.read_csv('data2.csv')
-    teamsheet = pd.read_csv('2024ts.csv')
-    #score_scraper('https://www.teamrankings.com/ncb/schedules/?date=2025-03-18', model, scaler, df, teamsheet, explainer, feature_names)
-    ranking(df, model, scaler, teamsheet, explainer, feature_names)
-    csv_file = "bracket.csv"
-    bracket = load_bracket(csv_file)
-    #parsebracket(bracket, model, probmodel, scaler, df, teamsheet, explainer, feature_names)
-    while True:
-        t1 = input('Home Team: ')
-        t2 = input('Away Team: ')
-        home = matchup(t1, t2, model, scaler, df, teamsheet, explainer, feature_names)
-        away = matchup(t2, t1, model, scaler, df, teamsheet, explainer, feature_names)
-        print(f"\nFinal Prediction: {t1} vs {t2}")
-        print(f"Home Advantage: {home:.2f}")
-        print(f"Away Disadvantage: {away:.2f}")
-        print(f"Predicted Point Difference: {(home + -away)/2:.2f}\n")
-        print(predict_probability((home + -away)/2, probmodel))
+
 if __name__ == "__main__":
     main()

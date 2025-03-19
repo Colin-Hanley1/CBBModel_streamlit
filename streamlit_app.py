@@ -292,7 +292,7 @@ def main():
     st.set_page_config(page_title="College Basketball Prediction Model", layout="wide")
     
     st.title("College Basketball Prediction Model")
-    st.write("This app uses a neural network model to predict college basketball games and tournament outcomes.")
+    st.write("Last updated 3/19/25 at 11:39")
     
     # Load model and data
     model, scaler, df, teamsheet, explainer, feature_names = load_model_and_data()

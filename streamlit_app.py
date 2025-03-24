@@ -292,7 +292,7 @@ def main():
     st.set_page_config(page_title="College Basketball Prediction Model", layout="wide")
     
     st.title("College Basketball Prediction Model")
-    st.write("Last updated 3/23/25 at 10:17")
+    st.write("Last updated 3/24/25 at 07:51")
     
     # Load model and data
     model, scaler, df, teamsheet, explainer, feature_names = load_model_and_data()
